@@ -3,7 +3,17 @@ import chess
 import chess.svg
 import os
 import time
+import stat
 
+# --- INÍCIO DA CORREÇÃO DE PERMISSÃO ---
+# Define o caminho para o binário Stockfish
+STOCKFISH_PATH = "./stockfish" 
+
+# Garante que o arquivo tenha permissão de execução
+if not os.access(STOCKFISH_PATH, os.X_OK):
+    print(f"Definindo permissão de execução para: {STOCKFISH_PATH}")
+    # A permissão 0o755 significa rwxr-xr-x (leitura/escrita/execução para o dono)
+    os.chmod(STOCKFISH_PATH, 0o755)
 # Tenta importar, mas não falha silenciosamente
 try:
     from stockfish import Stockfish
