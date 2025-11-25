@@ -50,8 +50,8 @@ def init_state():
         st.session_state.selected_square = None
     if 'valid_moves_from_square' not in st.session_state:
         st.session_state.valid_moves_from_square = []
-    if 'click_count' not in st.session_state:
-        st.session_state.click_count = 0
+    if 'input_mode' not in st.session_state:
+        st.session_state.input_mode = "Notação"
 
 
 # --- FUNÇÃO DO MOTOR ---
@@ -117,6 +117,30 @@ def pixel_to_square(x, y, board_size=650, orientation=chess.WHITE):
     return file + rank
 
 
+def process_move(board, move_input, is_uci=False):
+    """
+    Processa um movimento em notação SAN ou UCI
+    Retorna (sucesso, mensagem, move_obj ou None)
+    """
+    try:
+        if is_uci:
+            # Modo UCI: e2e4, Nf3, etc
+            move = board.parse_uci(move_input) if len(move_input) == 4 else board.parse_san(move_input)
+        else:
+            # Modo SAN: tentar ambos
+            try:
+                move = board.parse_san(move_input)
+            except:
+                move = board.parse_uci(move_input)
+        
+        if move in board.legal_moves:
+            return True, f"✓ Movimento: {move}", move
+        else:
+            return False, f"⚠️ Movimento ilegal: {move_input}", None
+    except Exception as e:
+        return False, f"⚠️ Erro ao processar: {str(e)}", None
+
+
 # --- LÓGICA DO JOGO ---
 def main():
     init_state()
@@ -175,26 +199,24 @@ def main():
         board = st.session_state.board
         visual_orientation = st.session_state.orientation
         
-        # Renderiza o SVG do tabuleiro (compatível com Streamlit Cloud)
+        # Renderiza o SVG do tabuleiro
         svg = chess.svg.board(
             board, 
             lastmove=board.peek() if board.move_stack else None,
             size=650,
             coordinates=True,
             orientation=visual_orientation,
-            arrows=[],  # Sem setas adicionais para economizar recursos
+            arrows=[],
         )
         
-        # Renderiza SVG diretamente (sem cairosvg)
+        # Renderiza SVG diretamente
         st.image(svg, use_container_width=False, width=650)
         
-        # Interface de cliques - compatível com streamlit-image-coordinates
-        st.markdown("**Clique na peça desejada, depois no destino**")
-        
+        # --- TENTATIVA 1: streamlit-image-coordinates ---
         try:
             from streamlit_image_coordinates import streamlit_image_coordinates
+            st.markdown("**📌 Clique na peça desejada, depois no destino**")
             
-            # Renderiza SVG novamente para capturar cliques
             coords = streamlit_image_coordinates(svg, width=650)
             
             if coords:
@@ -220,74 +242,96 @@ def main():
                     to_sq = square_name
                     move_uci = from_sq + to_sq
                     
-                    try:
-                        move = chess.Move.from_uci(move_uci)
-                        if move in board.legal_moves:
-                            board.push(move)
-                            st.session_state.game_log.append(move_uci)
-                            st.session_state.selected_square = None
-                            st.session_state.valid_moves_from_square = []
-                            st.success(f"✓ Movimento: {move_uci}")
-                            st.rerun()
-                        else:
-                            st.error(f"⚠️ Movimento ilegal: {move_uci}")
-                            st.session_state.selected_square = None
-                            st.session_state.valid_moves_from_square = []
-                            st.rerun()
-                    except:
-                        st.error("⚠️ Erro ao processar movimento!")
+                    success, msg, move = process_move(board, move_uci, is_uci=True)
+                    if success:
+                        board.push(move)
+                        st.session_state.game_log.append(move_uci)
                         st.session_state.selected_square = None
+                        st.session_state.valid_moves_from_square = []
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                        st.session_state.selected_square = None
+                        st.session_state.valid_moves_from_square = []
                         st.rerun()
         
         except ImportError:
-            st.warning("⚠️ streamlit-image-coordinates não instalado. Usando modo manual:")
+            # --- FALLBACK: Modo Manual com Inputs ---
+            st.warning("📍 streamlit-image-coordinates não instalado. Use os modos abaixo:")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                click_x = st.number_input("Clique X (pixel):", min_value=0, max_value=650, step=1, key="click_x")
-            with col2:
-                click_y = st.number_input("Clique Y (pixel):", min_value=0, max_value=650, step=1, key="click_y")
+            input_mode = st.radio(
+                "Selecione o modo de entrada:",
+                ["Notação Chess", "Coordenadas (X, Y)"],
+                horizontal=True,
+                key="input_mode_selector"
+            )
             
-            if st.button("Processar Clique", use_container_width=True):
-                square_name = pixel_to_square(click_x, click_y, 650, visual_orientation)
-                square_obj = chess.parse_square(square_name)
+            if input_mode == "Notação Chess":
+                st.markdown("**Exemplos:** `e2e4`, `Nf3`, `e4`")
+                move_input = st.text_input(
+                    "Digite o movimento (UCI ou SAN):",
+                    placeholder="ex: e2e4 ou Nf3",
+                    key="move_input_notation"
+                )
                 
-                # Se nenhum quadrado selecionado, seleciona a peça
-                if st.session_state.selected_square is None:
-                    piece = board.piece_at(square_obj)
-                    if piece and piece.color == board.turn and piece.color == st.session_state.player_color:
-                        st.session_state.selected_square = square_name
-                        # Calcula moves válidos
-                        moves = [str(m) for m in board.legal_moves if str(m)[:2] == square_name]
-                        st.session_state.valid_moves_from_square = moves
-                        st.success(f"✓ Peça selecionada: {square_name}")
-                        st.rerun()
+                if st.button("🎯 Mover (Notação)", use_container_width=True):
+                    if move_input.strip():
+                        success, msg, move = process_move(board, move_input.strip(), is_uci=False)
+                        if success:
+                            board.push(move)
+                            st.session_state.game_log.append(str(move))
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
                     else:
-                        st.error("⚠️ Nenhuma peça sua neste quadrado!")
-                else:
-                    # Tenta fazer o movimento
-                    from_sq = st.session_state.selected_square
-                    to_sq = square_name
-                    move_uci = from_sq + to_sq
+                        st.error("⚠️ Digite um movimento!")
+            
+            else:  # Coordenadas X, Y
+                st.markdown("**Instruções:** Clique na peça (1º), depois no destino (2º)")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    click_x = st.number_input("Clique X (pixels):", min_value=0, max_value=650, step=1, key="click_x", value=0)
+                with col2:
+                    click_y = st.number_input("Clique Y (pixels):", min_value=0, max_value=650, step=1, key="click_y", value=0)
+                
+                if st.button("🎯 Processar Clique", use_container_width=True):
+                    square_name = pixel_to_square(click_x, click_y, 650, visual_orientation)
+                    square_obj = chess.parse_square(square_name)
                     
-                    try:
-                        move = chess.Move.from_uci(move_uci)
-                        if move in board.legal_moves:
+                    # Se nenhum quadrado selecionado, seleciona a peça
+                    if st.session_state.selected_square is None:
+                        piece = board.piece_at(square_obj)
+                        if piece and piece.color == board.turn and piece.color == st.session_state.player_color:
+                            st.session_state.selected_square = square_name
+                            # Calcula moves válidos
+                            moves = [str(m) for m in board.legal_moves if str(m)[:2] == square_name]
+                            st.session_state.valid_moves_from_square = moves
+                            st.success(f"✓ Peça selecionada: {square_name}")
+                            st.rerun()
+                        else:
+                            st.error("⚠️ Nenhuma peça sua neste quadrado!")
+                    else:
+                        # Tenta fazer o movimento
+                        from_sq = st.session_state.selected_square
+                        to_sq = square_name
+                        move_uci = from_sq + to_sq
+                        
+                        success, msg, move = process_move(board, move_uci, is_uci=True)
+                        if success:
                             board.push(move)
                             st.session_state.game_log.append(move_uci)
                             st.session_state.selected_square = None
                             st.session_state.valid_moves_from_square = []
-                            st.success(f"✓ Movimento: {move_uci}")
+                            st.success(msg)
                             st.rerun()
                         else:
-                            st.error(f"⚠️ Movimento ilegal: {move_uci}")
+                            st.error(msg)
                             st.session_state.selected_square = None
                             st.session_state.valid_moves_from_square = []
                             st.rerun()
-                    except:
-                        st.error("⚠️ Erro ao processar movimento!")
-                        st.session_state.selected_square = None
-                        st.rerun()
 
     with col_hud:
         turn_text = "Brancas" if board.turn == chess.WHITE else "Pretas"
@@ -295,10 +339,10 @@ def main():
         if board.turn == st.session_state.player_color:
             st.subheader(f"Sua Vez (:blue[{turn_text}])")
             if st.session_state.selected_square:
-                st.info(f"📍 Selecionado: {st.session_state.selected_square}")
+                st.info(f"📍 Selecionado: **{st.session_state.selected_square}**")
                 if st.session_state.valid_moves_from_square:
-                    st.caption(f"Destinos válidos: {len(st.session_state.valid_moves_from_square)}")
-                    with st.expander("Ver todos os movimentos"):
+                    st.caption(f"**{len(st.session_state.valid_moves_from_square)}** movimentos válidos")
+                    with st.expander("Ver todos"):
                         st.write(", ".join(st.session_state.valid_moves_from_square))
         else:
             st.subheader(f"Vez do Computador (:red[{turn_text}])")
@@ -339,10 +383,18 @@ def main():
 
         # Histórico
         if st.session_state.game_log:
-            st.text_area("PGN Raw", " ".join(st.session_state.game_log), height=100)
+            st.markdown("#### 📋 Histórico de Movimentos")
+            st.text_area("PGN Raw", " ".join(st.session_state.game_log), height=100, disabled=True)
             
             # Estatísticas
-            st.caption(f"Total de movimentos: {len(st.session_state.game_log)}")
+            col_stats1, col_stats2, col_stats3 = st.columns(3)
+            with col_stats1:
+                st.metric("Total de Movimentos", len(st.session_state.game_log))
+            with col_stats2:
+                st.metric("Rodadas", len(st.session_state.game_log) // 2)
+            with col_stats3:
+                turno_atual = "Brancas" if board.turn == chess.WHITE else "Pretas"
+                st.metric("Próximo a jogar", turno_atual)
 
 
 if __name__ == "__main__":
