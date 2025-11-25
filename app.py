@@ -139,7 +139,7 @@ def main():
         st.caption("Nota: Esta configuração exige ~2.5GB de RAM livre e CPU Multi-core.")
 
         # Detecção automática ou input
-        default_path = "./stockfish" if os.name == 'nt' else "/usr/bin/stockfish"
+        default_path = "./stockfish"
         engine_path = st.text_input("Path do Motor:", value=default_path)
         
         depth = st.slider("Profundidade de Análise", 10, 30, 18)
