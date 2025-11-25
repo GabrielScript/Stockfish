@@ -1,6 +1,6 @@
 streamlit
 python-chess
 stockfish
-streamlit-image-coordinates
+
 Pillow
-pyarrow
+
