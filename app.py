@@ -59,7 +59,7 @@ def load_engine_process(path):
             depth=18, 
             parameters={
                 "Threads": 8,  # Fixo: Alto paralelismo
-                "Hash": 2048,   # Fixo: 2GB de tabela de transposição
+                "Hash": 512,   # Fixo: 2GB de tabela de transposição
                 "Ponder": "false" # Desativado para economizar ciclo em stateless app
             }
         )
@@ -129,7 +129,7 @@ def main():
         st.caption("Nota: Esta configuração exige ~2.5GB de RAM livre e CPU Multi-core.")
 
         # Detecção automática ou input
-        default_path = r"C:\ChessEngine\stockfish-axv2.exe" if os.name == 'nt' else "/usr/bin/stockfish"
+        default_path = r"./stockfish" if os.name == 'nt' else "/usr/bin/stockfish"
         engine_path = st.text_input("Path do Motor:", value=default_path)
         
         depth = st.slider("Profundidade de Análise", 10, 30, 18)
