@@ -158,7 +158,7 @@ def main():
         
         chosen_color = chess.WHITE if color_choice == "Brancas" else chess.BLACK
         
-        if st.button("🔄 Novo Jogo / Aplicar Cor", use_container_width=True):
+        if st.button("🔄 Novo Jogo / Aplicar Cor", width="content"):
             st.session_state.board.reset()
             st.session_state.game_log = []
             st.session_state.selected_square = None
@@ -275,7 +275,7 @@ def main():
                     key="move_input_notation"
                 )
                 
-                if st.button("🎯 Mover (Notação)", use_container_width=True):
+                if st.button("🎯 Mover (Notação)", width="content"):
                     if move_input.strip():
                         success, msg, move = process_move(board, move_input.strip(), is_uci=False)
                         if success:
@@ -297,7 +297,7 @@ def main():
                 with col2:
                     click_y = st.number_input("Clique Y (pixels):", min_value=0, max_value=650, step=1, key="click_y", value=0)
                 
-                if st.button("🎯 Processar Clique", use_container_width=True):
+                if st.button("🎯 Processar Clique", width="content"):
                     square_name = pixel_to_square(click_x, click_y, 650, visual_orientation)
                     square_obj = chess.parse_square(square_name)
                     
@@ -356,7 +356,7 @@ def main():
             use_time_limit = st.toggle("Limitar por Tempo", value=True)
             time_limit_ms = st.slider("Tempo (ms)", 100, 5000, 1000) if use_time_limit else None
 
-            if st.button("⚡ Executar Lance da IA", type="primary", use_container_width=True):
+            if st.button("⚡ Executar Lance da IA", type="primary", width="content"):
                 with st.spinner(f"Processando com 3 Threads em {depth} plies..."):
                     st.session_state.stockfish.set_fen_position(board.fen())
                     
