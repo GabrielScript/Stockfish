@@ -1,4 +1,4 @@
 stockfish
-chess.svg
-chess
+
+python-chess
 streamlit
