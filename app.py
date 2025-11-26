@@ -5,260 +5,240 @@ import os
 import time
 import stat
 
-# --- GESTÃO DE DEPENDÊNCIAS DO FRONT-END ---
-# A interatividade visual depende desta biblioteca ponte (JS <-> Python).
-try:
-    from streamlit_chessboard import render_chessboard
-except ImportError:
-    st.error("""
-    🚨 **Dependência Crítica Ausente**
-    
-    Para manipular o tabuleiro livremente, precisamos do componente de interface.
-    Instale via terminal:
-    `pip install streamlit-chessboard`
-    """)
-    st.stop()
-
-# --- CONFIGURAÇÃO DO AMBIENTE E PERMISSÕES ---
+# --- INÍCIO DA CORREÇÃO DE PERMISSÃO ---
+# Define o caminho para o binário Stockfish
 STOCKFISH_PATH = "./stockfish" 
 
-# Verificação proativa de integridade do binário
-if os.path.exists(STOCKFISH_PATH):
-    if not os.access(STOCKFISH_PATH, os.X_OK):
-        # Tenta conceder permissão de execução (chmod +x)
-        try:
-            os.chmod(STOCKFISH_PATH, 0o755)
-        except Exception as e:
-            st.warning(f"Aviso de Permissão: Não foi possível tornar o Stockfish executável automaticamente. Erro: {e}")
-
+# Garante que o arquivo tenha permissão de execução
+if not os.access(STOCKFISH_PATH, os.X_OK):
+    print(f"Definindo permissão de execução para: {STOCKFISH_PATH}")
+    # A permissão 0o755 significa rwxr-xr-x (leitura/escrita/execução para o dono)
+    os.chmod(STOCKFISH_PATH, 0o755)
+# Tenta importar, mas não falha silenciosamente
 try:
     from stockfish import Stockfish
 except ImportError:
     st.error("🚨 Biblioteca 'stockfish' não encontrada. Instale com: pip install stockfish")
     st.stop()
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Titan Chess - Sandbox Mode", layout="wide", page_icon="♟️")
+# --- CONFIGURAÇÃO DE ALTA PERFORMANCE ---
+st.set_page_config(page_title="Titan Chess Engine", layout="wide", page_icon="♟️")
 
-# CSS Otimizado para Foco e Contraste
+# CSS para feedback visual de carregamento
+# Nota Crítica: Mantemos o CSS dark mode para reduzir fadiga visual durante análises profundas.
 st.markdown("""
     <style>
-    /* Fundo escuro profundo para reduzir fadiga visual (Dark Mode Nativo) */
     .stApp { background-color: #0e1117; color: #c9d1d9; }
-    
-    /* Botões com feedback tátil visual */
-    .stButton>button { border: 1px solid #30363d; background-color: #21262d; color: #c9d1d9; transition: all 0.2s; }
-    .stButton>button:hover { border-color: #58a6ff; color: #58a6ff; transform: scale(1.02); }
-    
-    /* Centralização do Tabuleiro */
-    iframe { display: block; margin: 0 auto; }
-    
-    /* Melhoria na legibilidade dos logs */
-    .stTextArea textarea { font-family: 'Courier New', monospace; background-color: #0d1117; }
+    .stButton>button { border: 1px solid #30363d; background-color: #21262d; color: #c9d1d9; }
+    .stButton>button:hover { border-color: #58a6ff; color: #58a6ff; }
+    div.stSpinner > div { border-top-color: #58a6ff !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- ESTADO PERSISTENTE (State Management) ---
+# --- ESTADO PERSISTENTE ---
 def init_state():
-    # O tabuleiro lógico (backend)
     if 'board' not in st.session_state:
         st.session_state.board = chess.Board()
-    
-    # Histórico de lances (para display de PGN)
     if 'game_log' not in st.session_state:
         st.session_state.game_log = []
-    
-    # Instância do motor Stockfish
     if 'stockfish' not in st.session_state:
         st.session_state.stockfish = None
-    
-    # Parâmetros para evitar recargas desnecessárias do motor
     if 'engine_params' not in st.session_state:
         st.session_state.engine_params = {}
-    
-    # Controle de Orientação Visual (Flip Board)
+    # Novo estado para a orientação do jogador
+    if 'player_color' not in st.session_state:
+        st.session_state.player_color = chess.WHITE # Padrão
     if 'orientation' not in st.session_state:
-        st.session_state.orientation = 'white'
+        st.session_state.orientation = chess.WHITE
 
-# --- CARREGAMENTO E OTIMIZAÇÃO DO MOTOR ---
+# --- FUNÇÃO DO MOTOR (HARDCODED PERFORMANCE) ---
 @st.cache_resource(show_spinner=False)
 def load_engine_process(path):
     """
-    Instancia o processo do Stockfish com alocação fixa de memória.
-    Configurado para alta performance (3 Threads, 128MB Hash).
+    Carrega o processo do SO.
+    CRÍTICA DE RECURSOS: Você solicitou 10 threads e 2048MB de Hash.
+    Isso é fixo aqui. Se a máquina não tiver 10 threads lógicas, 
+    o Stockfish vai tentar usar o máximo disponível ou causar thrashing.
     """
     if not os.path.isfile(path):
         return None
     try:
+        # Inicialização Hardcoded conforme solicitado
         return Stockfish(
             path=path, 
             depth=18, 
             parameters={
-                "Threads": 3, 
-                "Hash": 128, 
-                "Ponder": "false"
+                "Threads":3,  # Fixo: Alto paralelismo
+                "Hash": 128,   # Fixo: 2GB de tabela de transposição
+                "Ponder": "false" # Desativado para economizar ciclo em stateless app
             }
         )
     except Exception as e:
-        st.error(f"Erro ao carregar o binário do motor: {e}")
+        st.error(f"Erro Crítico de Inicialização do Motor: {e}")
         return None
 
 def update_engine_dynamic(sf_instance, depth, skill):
-    """Atualiza a força do motor sem reiniciar o processo."""
+    """
+    Atualiza apenas parâmetros dinâmicos de jogo (Depth/Skill).
+    Threads e Hash são imutáveis nesta versão para garantir a alocação de memória solicitada.
+    """
     if sf_instance is None:
         return
 
-    current_params = {"depth": depth, "skill": skill}
+    current_params = {
+        "depth": depth,
+        "skill": skill,
+        # Threads e Hash removidos da verificação de mudança pois são estáticos
+    }
+
     if st.session_state.engine_params != current_params:
         try:
             sf_instance.set_depth(depth)
             sf_instance.set_skill_level(skill)
+            # Não chamamos update_engine_parameters para Threads/Hash novamente
+            # para evitar re-alocação custosa de memória hash (limpar 2GB demora!)
+            sf_instance.update_engine_parameters({
+                "Minimum Thinking Time": 50 
+            })
             st.session_state.engine_params = current_params
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"⚠️ Falha ao atualizar parâmetros dinâmicos: {e}")
 
-# --- LÓGICA PRINCIPAL ---
+# --- LÓGICA DO JOGO ---
 def main():
     init_state()
 
-    # --- BARRA LATERAL (CONTROLES) ---
     with st.sidebar:
-        st.title("♟️ Titan Chess")
+        st.header("⚙️ Parâmetros do Sistema")
         
-        # 1. Seletor de Modo de Jogo (A CHAVE DA SUA SOLUÇÃO)
-        st.markdown("### 🎮 Modo de Jogo")
-        game_mode = st.selectbox(
-            "Selecione a Dinâmica:",
-            [
-                "Sandbox (Livre - Jogar pelos dois)",
-                "Humano vs Stockfish (Jogar de Brancas)",
-                "Stockfish vs Humano (Jogar de Pretas)"
-            ],
-            help="Sandbox permite que você mova qualquer peça (desde que seja o turno dela)."
+        # Seleção de Cor e Reinício
+        st.markdown("### 🏳️ Seleção de Lado")
+        
+        # Usamos um callback ou verificamos mudança para resetar o board se a cor mudar
+        color_choice = st.radio(
+            "Jogar como:", 
+            ["Brancas", "Pretas"], 
+            index=0 if st.session_state.player_color == chess.WHITE else 1
         )
-
-        st.divider()
-
-        # 2. Controles de Reset e Orientação
-        col_reset, col_flip = st.columns(2)
-        with col_reset:
-            if st.button("🔄 Reiniciar", width="content"):
-                st.session_state.board.reset()
-                st.session_state.game_log = []
-                st.rerun()
-        with col_flip:
-            if st.button("d2d7 Virar", width="content"):
-                st.session_state.orientation = 'black' if st.session_state.orientation == 'white' else 'white'
-                st.rerun()
+        
+        chosen_color = chess.WHITE if color_choice == "Brancas" else chess.BLACK
+        
+        # Botão de Reset com aplicação da cor
+        if st.button("🔄 Novo Jogo / Aplicar Cor", use_container_width=True):
+            st.session_state.board.reset()
+            st.session_state.game_log = []
+            st.session_state.player_color = chosen_color
+            # A orientação visual segue a cor do jogador (peças do jogador embaixo)
+            st.session_state.orientation = chosen_color 
+            st.rerun()
 
         st.divider()
         
-        # 3. Configuração do Motor
-        st.markdown("### 🧠 Configuração da IA")
-        engine_path = st.text_input("Caminho do Motor:", value="./stockfish")
-        depth = st.slider("Profundidade (Depth)", 10, 30, 18)
-        skill = st.slider("Habilidade (Skill Level)", 0, 20, 20)
+        # Informações Técnicas (Somente Leitura agora, pois foram fixadas)
+        st.info(f"🔧 Engine Fixa: **10 Threads** | **2048 MB Hash**")
+        st.caption("Nota: Esta configuração exige ~2.5GB de RAM livre e CPU Multi-core.")
 
-    # Inicialização do Motor
+        # Detecção automática ou input
+        default_path = "./stockfish"
+        engine_path = st.text_input("Path do Motor:", value=default_path)
+        
+        depth = st.slider("Profundidade de Análise", 10, 30, 18)
+        skill = st.slider("Nível de Habilidade (Elo Simulado)", 0, 20, 20)
+
+    # --- CARREGAMENTO DO MOTOR ---
     engine = load_engine_process(engine_path)
+    
     if engine:
         update_engine_dynamic(engine, depth, skill)
         st.session_state.stockfish = engine
     else:
-        st.warning("⚠️ Motor não carregado. Você pode jogar no modo manual, mas sem análise.")
+        st.error(f"❌ Motor não encontrado em: {engine_path}")
 
-    # --- ÁREA DO TABULEIRO ---
+    # --- INTERFACE ---
     col_board, col_hud = st.columns([1.5, 1])
 
     with col_board:
+        # Renderização do Tabuleiro
         board = st.session_state.board
         
-        # Renderização do Tabuleiro Interativo
-        # No modo Sandbox, a orientação visual não dita quem pode mover.
-        # O componente permite mover qualquer peça que tenha lances legais no turno atual.
-        move_data = render_chessboard(
-            board.fen(), 
-            key=f"board_{len(st.session_state.game_log)}_{st.session_state.orientation}", 
-            orientation=st.session_state.orientation
+        # Lógica de Orientação:
+        # Se eu jogo de Pretas, orientation=chess.BLACK (Pretas embaixo)
+        # Se eu jogo de Brancas, orientation=chess.WHITE (Brancas embaixo)
+        visual_orientation = st.session_state.orientation
+        
+        # SVG Otimizado
+        svg = chess.svg.board(
+            board, 
+            lastmove=board.peek() if board.move_stack else None,
+            size=650, # Tamanho nativo fixo
+            coordinates=True,
+            orientation=visual_orientation # AQUI ESTÁ A MÁGICA DA ROTAÇÃO
         )
+        
+        # Renderização da Imagem
+        # O usuário pediu: não use_container_width=True, mas sim width="content"
+        # Tradução técnica: Deixar o SVG ditar o tamanho ou fixar no tamanho do SVG.
+        st.image(svg, use_container_width=False, width=650) 
 
-        # PROCESSAMENTO DO MOVIMENTO DO USUÁRIO
-        if move_data:
-            new_fen = move_data['fen']
-            # Se o FEN mudou, significa que o usuário arrastou uma peça com sucesso
-            if new_fen != board.fen():
-                # Precisamos descobrir qual foi o lance para atualizar o log
-                # Criamos um tabuleiro temporário para validar e extrair o lance
-                # O 'render_chessboard' já valida se o lance é legal visualmente, 
-                # mas precisamos sincronizar o backend Python.
-                
-                # A estratégia mais robusta aqui é iterar sobre os lances legais do estado atual
-                # e ver qual deles resulta no novo FEN.
-                for move in board.legal_moves:
-                    board.push(move)
-                    if board.fen() == new_fen:
-                        # Encontramos o lance!
-                        st.session_state.game_log.append(move.uci())
-                        st.rerun() # Recarrega para confirmar
-                        break
-                    board.pop() # Desfaz se não for este
-
-    # --- PAINEL DE INFORMAÇÕES E IA ---
     with col_hud:
-        # Status do Turno
-        turn_color = "Brancas" if board.turn == chess.WHITE else "Pretas"
-        color_css = "blue" if board.turn == chess.WHITE else "red"
+        turn_text = "Brancas" if board.turn == chess.WHITE else "Pretas"
         
-        st.markdown(f"### Vez das :{color_css}[{turn_color}]")
+        # Indicador visual de quem joga
+        if board.turn == st.session_state.player_color:
+            st.subheader(f"Sua Vez (:blue[{turn_text}])")
+        else:
+            st.subheader(f"Vez do Computador (:red[{turn_text}])")
         
-        # Lógica de Controle da IA
-        # A IA só joga automaticamente se NÃO estivermos no modo Sandbox
-        # E se for a vez dela.
-        
-        ai_should_play = False
-        if game_mode == "Humano vs Stockfish" and board.turn == chess.BLACK:
-            ai_should_play = True
-        elif game_mode == "Stockfish vs Humano" and board.turn == chess.WHITE:
-            ai_should_play = True
-            
-        # Botão Manual de "Lance da IA" (Sempre disponível para ajuda, mesmo no Sandbox)
-        if st.button("⚡ Lance Sugerido (IA)", type="secondary", width="content"):
-            ai_should_play = True # Força a IA a jogar este turno
-            
-        # Execução da IA
-        if ai_should_play and st.session_state.stockfish and not board.is_game_over():
-            with st.spinner(f"Stockfish pensando..."):
-                st.session_state.stockfish.set_fen_position(board.fen())
-                
-                # Controle de tempo simples
-                best_move_uci = st.session_state.stockfish.get_best_move_time(1000)
-                
-                if best_move_uci:
-                    move = chess.Move.from_uci(best_move_uci)
-                    board.push(move)
-                    st.session_state.game_log.append(best_move_uci)
-                    st.rerun()
-
-        # Feedback de Fim de Jogo
-        if board.is_checkmate():
-            st.error(f"Xeque-mate! Vitória das {'Pretas' if board.turn == chess.WHITE else 'Brancas'}.")
-        elif board.is_stalemate():
-            st.warning("Empate por Afogamento (Stalemate).")
-        elif board.is_insufficient_material():
-            st.warning("Empate por Material Insuficiente.")
+        # INPUT MANUAL
+        col_in, col_btn = st.columns([3, 1])
+        with col_in:
+            move_input = st.text_input("Sua Jogada (SAN/UCI):", key="move_in", placeholder="ex: e4, Nf3")
+        with col_btn:
+            if st.button("Mover", use_container_width=True):
+                try:
+                    move = board.parse_san(move_input) if len(move_input) < 3 else board.parse_uci(move_input)
+                    if move in board.legal_moves:
+                        board.push(move)
+                        st.session_state.game_log.append(move_input)
+                        st.rerun()
+                    else:
+                        st.toast("⚠️ Lance Ilegal!", icon="🚫")
+                except:
+                    st.toast("⚠️ Formato Inválido!", icon="🚫")
 
         st.divider()
-        
-        # Histórico de Lances (PGN Simplificado)
-        if st.session_state.game_log:
-            pgn_text = ""
-            for i, move in enumerate(st.session_state.game_log):
-                if i % 2 == 0:
-                    pgn_text += f"{(i // 2) + 1}. {move} "
-                else:
-                    pgn_text += f"{move}  \n"
+
+        # INPUT DO MOTOR
+        if st.session_state.stockfish:
+            st.markdown("#### 🧠 Titan Engine Analysis")
             
-            st.text_area("Histórico da Partida", pgn_text, height=200)
+            use_time_limit = st.toggle("Limitar por Tempo", value=True)
+            time_limit_ms = st.slider("Tempo (ms)", 100, 5000, 1000) if use_time_limit else None
+
+            if st.button("⚡ Executar Lance da IA", type="primary", use_container_width=True):
+                with st.spinner(f"Processando com 10 Threads em {depth} plies..."):
+                    st.session_state.stockfish.set_fen_position(board.fen())
+                    
+                    start_t = time.time()
+                    
+                    if use_time_limit:
+                        best_move = st.session_state.stockfish.get_best_move_time(time_limit_ms)
+                    else:
+                        best_move = st.session_state.stockfish.get_best_move()
+                    
+                    end_t = time.time()
+                    
+                    if best_move:
+                        move = chess.Move.from_uci(best_move)
+                        board.push(move)
+                        st.session_state.game_log.append(best_move)
+                        st.success(f"Lance: {best_move} ({(end_t - start_t):.2f}s)")
+                        time.sleep(0.5)
+                        st.rerun()
+
+        # Histórico
+        if st.session_state.game_log:
+            st.text_area("PGN Raw", " ".join(st.session_state.game_log), height=100)
 
 if __name__ == "__main__":
     main()
