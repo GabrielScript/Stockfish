@@ -69,8 +69,9 @@ def load_engine_process(path):
             depth=18, 
             parameters={
                 "Threads":3,  # Fixo: Alto paralelismo
-                "Hash": 128,   # Fixo: 2GB de tabela de transposição
-                "Ponder": "false" # Desativado para economizar ciclo em stateless app
+                "Hash": 512,   # Fixo: 2GB de tabela de transposição
+                "Ponder": "false",
+                "Contempt": 125,  # Ajuste para desempate favorável ao jogador
             }
         )
     except Exception as e:
@@ -142,7 +143,7 @@ def main():
         default_path = "./stockfish"
         engine_path = st.text_input("Path do Motor:", value=default_path)
         
-        depth = st.slider("Profundidade de Análise", 10, 30, 18)
+        depth = st.slider("Profundidade de Análise", 10, 30, 30)
         skill = st.slider("Nível de Habilidade (Elo Simulado)", 0, 20, 20)
 
     # --- CARREGAMENTO DO MOTOR ---
